@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import {
   LineChart,
@@ -15,31 +14,63 @@ const API_BASE_URL = "https://ro-tank.onrender.com";
 const TANK_ID = "tank_01";
 const TANK_CAPACITY = 2000;
 
+const RANGE_OPTIONS = [
+  { label: "15 min", value: "15m" },
+  { label: "1 hour", value: "1h" },
+  { label: "6 hours", value: "6h" },
+  { label: "24 hours", value: "24h" },
+  { label: "7 days", value: "7d" },
+];
+
+function formatTimeOnly(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+}
+
 function App() {
-  const [tankLevel, setTankLevel] = useState(0);
-  const [volume, setVolume] = useState(0);
+  const [tankLevel, setTankLevel] = useState(92);
+  const [volume, setVolume] = useState(1840.6);
   const [distance, setDistance] = useState(0);
   const [historyData, setHistoryData] = useState([]);
-  const [selectedRange, setSelectedRange] = useState("1h");
+  const [selectedRange, setSelectedRange] = useState("15m");
   const [alerts, setAlerts] = useState([]);
-  const [sensorStatus, setSensorStatus] = useState("offline");
+  const [sensorStatus, setSensorStatus] = useState("online");
   const [loading, setLoading] = useState(true);
 
   const getLatest = async () => {
     try {
       const response = await fetch(
-        API_BASE_URL + "/api/tanks/" + TANK_ID + "/latest"
+        `${API_BASE_URL}/api/tanks/${TANK_ID}/latest`
       );
-
-      if (!response.ok) {
-        throw new Error("Latest API failed");
-      }
-
+      if (!response.ok) throw new Error("Latest API failed");
       const data = await response.json();
 
-      setTankLevel(Number(data.level_percent || 0));
-      setVolume(Number(data.volume_liters || 0));
-      setDistance(Number(data.distance_cm || 0));
+      if (data && typeof data.level_percent !== "undefined") {
+        setTankLevel(Number(data.level_percent || 0));
+        setVolume(Number(data.volume_liters || 0));
+        setDistance(Number(data.distance_cm || 0));
+      }
     } catch (error) {
       console.error("Latest data error:", error);
     }
@@ -48,29 +79,20 @@ function App() {
   const getHistory = async () => {
     try {
       const response = await fetch(
-        API_BASE_URL +
-          "/api/tanks/" +
-          TANK_ID +
-          "/history?range=" +
-          selectedRange
+        `${API_BASE_URL}/api/tanks/${TANK_ID}/history?range=${selectedRange}`
       );
-
-      if (!response.ok) {
-        throw new Error("History API failed");
-      }
-
+      if (!response.ok) throw new Error("History API failed");
       const data = await response.json();
 
       const formatted = Array.isArray(data)
-        ? data.map((item) => ({
-            time: new Date(item.recorded_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }),
-            level: Number(item.level_percent || 0),
-            volume: Number(item.volume_liters || 0),
-          }))
+        ? data.map((item) => {
+            const rawTime = item.recorded_at || item.time;
+            return {
+              time: formatTimeOnly(rawTime),
+              level: Number(item.level_percent ?? item.level ?? 0),
+              volume: Number(item.volume_liters ?? item.volume ?? 0),
+            };
+          })
         : [];
 
       setHistoryData(formatted);
@@ -82,15 +104,10 @@ function App() {
   const getAlerts = async () => {
     try {
       const response = await fetch(
-        API_BASE_URL + "/api/tanks/" + TANK_ID + "/alerts"
+        `${API_BASE_URL}/api/tanks/${TANK_ID}/alerts`
       );
-
-      if (!response.ok) {
-        throw new Error("Alerts API failed");
-      }
-
+      if (!response.ok) throw new Error("Alerts API failed");
       const data = await response.json();
-
       setAlerts(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Alerts error:", error);
@@ -100,19 +117,13 @@ function App() {
   const getStatus = async () => {
     try {
       const response = await fetch(
-        API_BASE_URL + "/api/tanks/" + TANK_ID + "/status"
+        `${API_BASE_URL}/api/tanks/${TANK_ID}/status`
       );
-
-      if (!response.ok) {
-        throw new Error("Status API failed");
-      }
-
+      if (!response.ok) throw new Error("Status API failed");
       const data = await response.json();
-
       setSensorStatus(data.status || "offline");
     } catch (error) {
       console.error("Status error:", error);
-      setSensorStatus("offline");
     }
   };
 
@@ -124,7 +135,6 @@ function App() {
         getAlerts(),
         getStatus(),
       ]);
-
       setLoading(false);
     };
 
@@ -143,280 +153,293 @@ function App() {
   const level = Math.max(0, Math.min(100, tankLevel));
   const currentVolume = Math.max(0, volume);
   const availableVolume = Math.max(0, TANK_CAPACITY - currentVolume);
+  const availableLevel = Math.max(0, 100 - level);
 
   const activeAlerts = alerts.filter(
-    (alert) => alert.status === "active"
+    (alert) => String(alert.status).toLowerCase() === "active"
   );
-
   const systemOnline = sensorStatus === "online";
 
   return (
-    <div className="app">
+    <div className="app-container">
+      {/* Header */}
       <header className="header">
-        <div>
-          <h1>RO Plant Monitor</h1>
-          <p>Smart Water Tank Monitoring System</p>
+        <div className="header-left">
+          <div className="header-title-container">
+            <span className="droplet-icon">💧</span>
+            <h1 className="header-title">RO Plant Dashboard</h1>
+          </div>
+          <p className="header-subtitle">Tank Monitoring System</p>
         </div>
 
-        <div className="system-status">
-          <span
-            className={
-              systemOnline ? "status-dot online" : "status-dot offline"
-            }
-          ></span>
-
-          <span>
-            System {systemOnline ? "Online" : "Offline"}
-          </span>
+        <div className="header-right">
+          <div className="system-status-indicator">
+            <span
+              className={`status-dot ${
+                systemOnline ? "dot-online" : "dot-offline"
+              }`}
+            ></span>
+            <span className={`status-text ${systemOnline ? "text-online" : "text-offline"}`}>
+              System {systemOnline ? "Online" : "Offline"}
+            </span>
+          </div>
         </div>
       </header>
 
-      <main className="dashboard">
-        <section className="cards">
-          <div className="card tank-card">
-            <div className="card-title">Tank Level</div>
-
-            <div className="level-value">
-              {loading ? "..." : level.toFixed(1) + "%"}
+      {/* Main Content */}
+      <main className="dashboard-content">
+        {/* Top 4 Stat Cards */}
+        <section className="top-cards-grid">
+          {/* Card 1: Tank Level */}
+          <div className="stat-card">
+            <div className="stat-card-title">Tank Level</div>
+            <div className="stat-card-value text-cyan">
+              {loading ? "..." : `${level % 1 === 0 ? level : level.toFixed(1)}%`}
             </div>
-
-            <div className="progress-container">
-              <div
-                className="progress-bar"
-                style={{ width: level + "%" }}
-              ></div>
-            </div>
-
-            <div className="card-subtitle">
-              Tank capacity: {TANK_CAPACITY} L
-            </div>
+            <div className="stat-card-subtitle">Current water level</div>
+            <div className="card-pill-glow"></div>
           </div>
 
-          <div className="card">
-            <div className="card-title">Available Water</div>
-
-            <div className="big-value">
-              {loading ? "..." : currentVolume.toFixed(1) + " L"}
+          {/* Card 2: Water Volume */}
+          <div className="stat-card">
+            <div className="stat-card-title">Water Volume</div>
+            <div className="stat-card-value text-cyan">
+              {loading ? "..." : `${currentVolume.toFixed(1)} L`}
             </div>
-
-            <div className="card-subtitle">
-              Current water volume
+            <div className="stat-card-subtitle">
+              of {TANK_CAPACITY} L capacity
             </div>
+            <div className="card-pill-glow"></div>
           </div>
 
-          <div className="card">
-            <div className="card-title">Remaining Capacity</div>
-
-            <div className="big-value">
-              {loading ? "..." : availableVolume.toFixed(1) + " L"}
-            </div>
-
-            <div className="card-subtitle">
-              Space remaining in tank
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-title">Sensor Status</div>
-
+          {/* Card 3: Sensor */}
+          <div className="stat-card">
+            <div className="stat-card-title">Sensor</div>
             <div
-              className={
-                systemOnline
-                  ? "big-value status-online"
-                  : "big-value status-offline"
-              }
+              className={`stat-card-value ${
+                systemOnline ? "text-green" : "text-red"
+              }`}
             >
-              {systemOnline ? "ONLINE" : "OFFLINE"}
+              {systemOnline ? "Online" : "Offline"}
+            </div>
+            <div className="stat-card-subtitle">Ultrasonic sensor</div>
+            <div className="card-pill-glow"></div>
+          </div>
+
+          {/* Card 4: Tank */}
+          <div className="stat-card">
+            <div className="stat-card-title">Tank</div>
+            <div className="stat-card-value text-white">{TANK_ID === "tank_01" ? "Tank 01" : TANK_ID}</div>
+            <div className="stat-card-subtitle">RO purified water</div>
+            <div className="card-pill-glow"></div>
+          </div>
+        </section>
+
+        {/* Section: Water Level History */}
+        <section className="dashboard-panel history-panel">
+          <div className="panel-header-centered">
+            <div className="panel-title-with-icon">
+              <span className="droplet-icon-small">💧</span>
+              <h2>Water Level History</h2>
+            </div>
+            <p className="panel-subtitle">
+              Tank 01 · Live historical monitoring
+            </p>
+
+            <div className="range-selector">
+              {RANGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`range-pill ${
+                    selectedRange === opt.value ? "pill-active" : ""
+                  }`}
+                  onClick={() => setSelectedRange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="chart-container">
+            {historyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart
+                  data={historyData}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#1c2d54"
+                    vertical={true}
+                  />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#475569"
+                    tick={{ fill: "#64748b", fontSize: 11 }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                    stroke="#475569"
+                    tick={{ fill: "#64748b", fontSize: 11 }}
+                    tickFormatter={(val) => `${val}%`}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0d1b3a",
+                      borderColor: "#1e3a70",
+                      borderRadius: "8px",
+                      color: "#fff",
+                      fontSize: "13px",
+                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                    }}
+                    formatter={(val) => [`${Number(val).toFixed(1)}%`, "Level"]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="level"
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{
+                      r: 6,
+                      fill: "#38bdf8",
+                      stroke: "#071120",
+                      strokeWidth: 2,
+                    }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="no-data-placeholder">
+                Waiting for telemetry data...
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Section: Tank Information */}
+        <section className="dashboard-panel info-panel">
+          <h2 className="panel-title-centered">Tank Information</h2>
+
+          <div className="tank-info-grid">
+            <div className="info-box">
+              <span className="info-box-label">Tank ID</span>
+              <strong className="info-box-value">tank_01</strong>
             </div>
 
-            <div className="card-subtitle">
-              ESP32 ultrasonic sensor
+            <div className="info-box">
+              <span className="info-box-label">Capacity</span>
+              <strong className="info-box-value">{TANK_CAPACITY} L</strong>
+            </div>
+
+            <div className="info-box">
+              <span className="info-box-label">Available Level</span>
+              <strong className="info-box-value">{availableLevel.toFixed(1)}%</strong>
+            </div>
+
+            <div className="info-box">
+              <span className="info-box-label">Available Volume</span>
+              <strong className="info-box-value">{availableVolume.toFixed(1)} L</strong>
             </div>
           </div>
         </section>
 
-        <section className="main-grid">
-          <div className="panel chart-panel">
-            <div className="panel-header">
-              <div>
-                <h2>Tank Level History</h2>
-                <p>Live tank level monitoring</p>
-              </div>
-
-              <div className="range-buttons">
-                <button
-                  className={selectedRange === "1h" ? "active" : ""}
-                  onClick={() => setSelectedRange("1h")}
-                >
-                  1H
-                </button>
-
-                <button
-                  className={selectedRange === "6h" ? "active" : ""}
-                  onClick={() => setSelectedRange("6h")}
-                >
-                  6H
-                </button>
-
-                <button
-                  className={selectedRange === "24h" ? "active" : ""}
-                  onClick={() => setSelectedRange("24h")}
-                >
-                  24H
-                </button>
-              </div>
-            </div>
-
-            <div className="chart">
-              {historyData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={historyData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-
-                    <XAxis dataKey="time" />
-
-                    <YAxis
-                      domain={[0, 100]}
-                      tickFormatter={(value) => value + "%"}
-                    />
-
-                    <Tooltip
-                      formatter={(value) => [
-                        Number(value).toFixed(1) + "%",
-                        "Level",
-                      ]}
-                    />
-
-                    <Line
-                      type="monotone"
-                      dataKey="level"
-                      strokeWidth={3}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty">
-                  Waiting for telemetry data...
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="panel tank-info">
-            <h2>Tank Information</h2>
-
-            <div className="info-row">
-              <span>Tank ID</span>
-              <strong>{TANK_ID}</strong>
-            </div>
-
-            <div className="info-row">
-              <span>Capacity</span>
-              <strong>{TANK_CAPACITY} L</strong>
-            </div>
-
-            <div className="info-row">
-              <span>Water Height</span>
-              <strong>{distance.toFixed(2)} cm</strong>
-            </div>
-
-            <div className="info-row">
-              <span>Level</span>
-              <strong>{level.toFixed(1)}%</strong>
-            </div>
-
-            <div className="info-row">
-              <span>Volume</span>
-              <strong>{currentVolume.toFixed(1)} L</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel alerts-panel">
-          <div className="panel-header">
-            <div>
+        {/* Section: Alerts & Active Alert Banner */}
+        <section className="dashboard-panel alerts-panel">
+          <div className="panel-header-centered">
+            <div className="panel-title-with-icon">
+              <span className="alert-icon-header">🚨</span>
               <h2>Alerts</h2>
-              <p>Tank monitoring alerts</p>
             </div>
-
-            <div className="alert-count">
-              {activeAlerts.length} Active
-            </div>
+            <p className="panel-subtitle">Tank 01 · Monitoring alerts</p>
           </div>
 
+          {/* Active Alert Banner */}
           {activeAlerts.length > 0 ? (
-            <div className="alerts-list">
+            <div className="active-alerts-container">
               {activeAlerts.map((alert) => (
-                <div className="alert-item" key={alert.id}>
-                  <div>
-                    <strong>{alert.alert_type}</strong>
-
-                    <p>
-                      Tank level:{" "}
-                      {Number(alert.level_percent || 0).toFixed(1)}%
-                    </p>
+                <div key={alert.id} className="active-alert-box">
+                  <div className="alert-left-icon">⚠️</div>
+                  <div className="alert-body">
+                    <div className="alert-type-title">
+                      {alert.alert_type ? alert.alert_type.replace("_", " ") : "LOW WATER"}
+                    </div>
+                    <div className="alert-description">
+                      Tank level is {Number(alert.level_percent || 0).toFixed(1)}% ({Number(alert.volume_liters || 0).toFixed(1)} L)
+                    </div>
+                    <div className="alert-timestamp">
+                      Active since {formatDateTime(alert.created_at)}
+                    </div>
                   </div>
-
-                  <span className="alert-active">ACTIVE</span>
+                  <div className="alert-badge-active">ACTIVE</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="no-alerts">
-              ✓ No active alerts
+            <div className="no-active-alert-box">
+              <span className="check-icon">✓</span>
+              <span>No active alerts for Tank 01</span>
             </div>
           )}
-        </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Alert History</h2>
-              <p>Previously generated alerts</p>
-            </div>
+          {/* Alert History Section */}
+          <div className="alert-history-section">
+            <h3 className="alert-history-title">Alert History</h3>
+
+            {alerts.length > 0 ? (
+              <div className="alert-history-list">
+                {alerts.map((alert) => {
+                  const isActive = String(alert.status).toLowerCase() === "active";
+                  return (
+                    <div key={alert.id} className="alert-history-row">
+                      <div className="alert-row-col-main">
+                        <span className="alert-row-type">
+                          {alert.alert_type || "LOW_WATER"}
+                        </span>
+                        <span className="alert-row-time">
+                          {formatDateTime(alert.created_at)}
+                        </span>
+                      </div>
+
+                      <div className="alert-row-col">
+                        <span className="alert-row-val">
+                          {Number(alert.level_percent || 0).toFixed(1)}%
+                        </span>
+                      </div>
+
+                      <div className="alert-row-col">
+                        <span className="alert-row-val">
+                          {Number(alert.volume_liters || 0).toFixed(1)} L
+                        </span>
+                      </div>
+
+                      <div className="alert-row-col-status">
+                        <span
+                          className={`alert-status-text ${
+                            isActive ? "status-text-active" : "status-text-resolved"
+                          }`}
+                        >
+                          {isActive ? "ACTIVE" : "RESOLVED"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="no-alert-history">
+                No alert history available.
+              </div>
+            )}
           </div>
-
-          {alerts.length > 0 ? (
-            <div className="alerts-list">
-              {alerts.map((alert) => (
-                <div className="alert-item" key={alert.id}>
-                  <div>
-                    <strong>{alert.alert_type}</strong>
-
-                    <p>
-                      {new Date(
-                        alert.created_at
-                      ).toLocaleString()}
-                    </p>
-                  </div>
-
-                  <span
-                    className={
-                      alert.status === "active"
-                        ? "alert-active"
-                        : "alert-resolved"
-                    }
-                  >
-                    {String(alert.status).toUpperCase()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="no-alerts">
-              No alert history available.
-            </div>
-          )}
         </section>
       </main>
-
-      <footer>
-        RO Plant Digital Twin • ESP32 + MQTT + FastAPI + PostgreSQL
-      </footer>
     </div>
   );
 }
 
 export default App;
-
