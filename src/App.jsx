@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -14,9 +14,6 @@ const API_BASE_URL = "https://ro-tank.onrender.com";
 const TANK_ID = "tank_01";
 const TANK_CAPACITY = 2000;
 
-// Maximum points shown on the live sliding tremor graph
-const MAX_TREMOR_POINTS = 30;
-
 const RANGE_OPTIONS = [
   { label: "15 min", value: "15m" },
   { label: "1 hour", value: "1h" },
@@ -25,12 +22,11 @@ const RANGE_OPTIONS = [
   { label: "7 days", value: "7d" },
 ];
 
-// Helper to correctly parse ISO UTC timestamps from backend database
+// Parse UTC ISO timestamps correctly into local browser Date object
 function parseTimestamp(dateStr) {
   if (!dateStr) return new Date();
   if (typeof dateStr === "string") {
     let s = dateStr.trim();
-    // If backend returns UTC ISO string without explicit 'Z' or timezone offset, append 'Z'
     if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s) && !/[+-]\d{4}$/.test(s)) {
       s = s.replace(" ", "T") + "Z";
     }
@@ -41,13 +37,23 @@ function parseTimestamp(dateStr) {
   return isNaN(d.getTime()) ? new Date() : d;
 }
 
-function formatTimeOnly(dateStr) {
+// Axis time formatter adapted to time range scale
+function formatTimeForAxis(dateStr, range) {
   if (!dateStr) return "";
   const d = parseTimestamp(dateStr);
+  if (range === "7d" || range === "24h" || range === "6h") {
+    return d.toLocaleString("en-US", {
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }
   return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
+    second: range === "15m" ? "2-digit" : undefined,
     hour12: true,
   });
 }
@@ -64,6 +70,30 @@ function formatDateTime(dateStr) {
     second: "2-digit",
     hour12: true,
   });
+}
+
+// Downsample points for long time ranges (1h, 6h, 24h, 7d) so entire range displays cleanly
+function processHistoryForRange(formattedData, range) {
+  if (!formattedData || formattedData.length === 0) return [];
+  
+  if (range === "15m") {
+    return formattedData.slice(-40);
+  }
+
+  const maxPoints = 120;
+  if (formattedData.length <= maxPoints) {
+    return formattedData;
+  }
+
+  const step = Math.ceil(formattedData.length / maxPoints);
+  const sampled = [];
+  for (let i = 0; i < formattedData.length; i += step) {
+    sampled.push(formattedData[i]);
+  }
+  if (sampled[sampled.length - 1] !== formattedData[formattedData.length - 1]) {
+    sampled.push(formattedData[formattedData.length - 1]);
+  }
+  return sampled;
 }
 
 function CustomTooltip({ active, payload }) {
@@ -85,17 +115,15 @@ function CustomTooltip({ active, payload }) {
 }
 
 function App() {
-  const [tankLevel, setTankLevel] = useState(92);
-  const [volume, setVolume] = useState(1840.6);
+  const [tankLevel, setTankLevel] = useState(0);
+  const [volume, setVolume] = useState(0);
   const [distance, setDistance] = useState(0);
   const [historyData, setHistoryData] = useState([]);
   const [selectedRange, setSelectedRange] = useState("15m");
   const [alerts, setAlerts] = useState([]);
-  const [sensorStatus, setSensorStatus] = useState("online");
+  const [sensorStatus, setSensorStatus] = useState("offline");
   const [loading, setLoading] = useState(true);
   const [lastUpdatedTime, setLastUpdatedTime] = useState("");
-
-  const latestDataRef = useRef({ level: 92, volume: 1840.6 });
 
   const getLatest = async () => {
     try {
@@ -105,48 +133,19 @@ function App() {
       if (!response.ok) throw new Error("Latest API failed");
       const data = await response.json();
 
-      if (data && typeof data.level_percent !== "undefined") {
+      if (data && typeof data.level_percent !== "undefined" && data.level_percent !== null) {
         const lvl = Number(data.level_percent || 0);
         const vol = Number(data.volume_liters || 0);
         const dist = Number(data.distance_cm || 0);
         const recordedTime = data.recorded_at;
 
-        if (lvl > 0 || vol > 0) {
-          setTankLevel(lvl);
-          setVolume(vol);
-          setDistance(dist);
-          latestDataRef.current = { level: lvl, volume: vol };
-        }
+        // Always reflect current water level data (even when decreased or 0)
+        setTankLevel(lvl);
+        setVolume(vol);
+        setDistance(dist);
+
         if (recordedTime) {
           setLastUpdatedTime(formatDateTime(recordedTime));
-        }
-
-        // Tremor graph live scrolling effect: append new point to right, shift timeline & wave left
-        if (recordedTime && (lvl > 0 || vol > 0)) {
-          const formattedTime = formatTimeOnly(recordedTime);
-          const fullTime = formatDateTime(recordedTime);
-
-          setHistoryData((prevData) => {
-            if (prevData.length === 0) return prevData;
-            const lastPoint = prevData[prevData.length - 1];
-
-            // Don't add duplicate if timestamp matches exactly
-            if (lastPoint && lastPoint.fullTime === fullTime) {
-              return prevData;
-            }
-
-            const newPoint = {
-              time: formattedTime,
-              fullTime: fullTime,
-              level: lvl,
-              volume: vol,
-              rawTime: parseTimestamp(recordedTime).getTime(),
-            };
-
-            // Shift timeline & values left together by dropping oldest item from start
-            const updated = [...prevData, newPoint];
-            return updated.slice(-MAX_TREMOR_POINTS);
-          });
         }
       }
     } catch (error) {
@@ -163,7 +162,7 @@ function App() {
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0) {
-        // Sort items by timestamp ascending (oldest left -> newest right)
+        // Sort chronologically (oldest left -> newest right)
         const sorted = [...data].sort((a, b) => {
           const tA = parseTimestamp(a.recorded_at || a.time).getTime();
           const tB = parseTimestamp(b.recorded_at || b.time).getTime();
@@ -173,7 +172,7 @@ function App() {
         const formatted = sorted.map((item) => {
           const rawTime = item.recorded_at || item.time;
           return {
-            time: formatTimeOnly(rawTime),
+            time: formatTimeForAxis(rawTime, selectedRange),
             fullTime: formatDateTime(rawTime),
             level: Number(item.level_percent ?? item.level ?? 0),
             volume: Number(item.volume_liters ?? item.volume ?? 0),
@@ -181,19 +180,10 @@ function App() {
           };
         });
 
-        // Limit initial points so tremor movement is crisp and clear
-        const sliced = formatted.slice(-MAX_TREMOR_POINTS);
-        setHistoryData(sliced);
-
-        // Update latest tank stats from last non-zero history point if needed
-        const validPoints = formatted.filter((d) => d.level > 0 || d.volume > 0);
-        if (validPoints.length > 0) {
-          const lastValid = validPoints[validPoints.length - 1];
-          setTankLevel((prev) => (prev === 0 || prev === 92 ? lastValid.level : prev));
-          setVolume((prev) => (prev === 0 || prev === 1840.6 ? lastValid.volume : prev));
-          setLastUpdatedTime(lastValid.fullTime);
-          latestDataRef.current = { level: lastValid.level, volume: lastValid.volume };
-        }
+        const rangeProcessedData = processHistoryForRange(formatted, selectedRange);
+        setHistoryData(rangeProcessedData);
+      } else {
+        setHistoryData([]);
       }
     } catch (error) {
       console.error("History error:", error);
@@ -229,8 +219,8 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([
-        getHistory(),
         getLatest(),
+        getHistory(),
         getAlerts(),
         getStatus(),
       ]);
@@ -239,13 +229,12 @@ function App() {
 
     loadData();
 
-    // Fast 2-second interval for active streaming tremor graph shift
     const interval = setInterval(() => {
       getLatest();
       getHistory();
       getAlerts();
       getStatus();
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [selectedRange]);
@@ -337,16 +326,15 @@ function App() {
           </div>
         </section>
 
-        {/* Section: Water Level History (Streaming Tremor Waveform) */}
+        {/* Section: Water Level History */}
         <section className="dashboard-panel history-panel ecg-card">
           <div className="panel-header-centered">
             <div className="panel-title-with-icon">
               <span className="droplet-icon-small">💧</span>
               <h2>Water Level History</h2>
-              <span className="live-ecg-badge">TREMOR GRAPH</span>
             </div>
             <p className="panel-subtitle">
-              Tank 01 · Streaming live waveform & real-time sliding timeline
+              Tank 01 · Live historical monitoring
             </p>
 
             <div className="range-selector">
@@ -412,7 +400,7 @@ function App() {
               </ResponsiveContainer>
             ) : (
               <div className="no-data-placeholder">
-                Streaming live tremor waveform...
+                Loading telemetry history data...
               </div>
             )}
           </div>
@@ -458,23 +446,35 @@ function App() {
           {/* Active Alert Banner */}
           {activeAlerts.length > 0 ? (
             <div className="active-alerts-container">
-              {activeAlerts.map((alert) => (
-                <div key={alert.id} className="active-alert-box">
-                  <div className="alert-left-icon">⚠️</div>
-                  <div className="alert-body">
-                    <div className="alert-type-title">
-                      {alert.alert_type ? alert.alert_type.replace("_", " ") : "LOW WATER"}
+              {activeAlerts.map((alert) => {
+                const alertLevel =
+                  typeof alert.level_percent !== "undefined" && alert.level_percent !== null
+                    ? Number(alert.level_percent).toFixed(1)
+                    : level.toFixed(1);
+
+                const alertVolume =
+                  typeof alert.volume_liters !== "undefined" && alert.volume_liters !== null
+                    ? Number(alert.volume_liters).toFixed(1)
+                    : currentVolume.toFixed(1);
+
+                return (
+                  <div key={alert.id} className="active-alert-box">
+                    <div className="alert-left-icon">⚠️</div>
+                    <div className="alert-body">
+                      <div className="alert-type-title">
+                        {alert.alert_type ? alert.alert_type.replace("_", " ") : "LOW WATER"}
+                      </div>
+                      <div className="alert-description">
+                        Tank level is {alertLevel}% ({alertVolume} L)
+                      </div>
+                      <div className="alert-timestamp">
+                        Active since {formatDateTime(alert.created_at)}
+                      </div>
                     </div>
-                    <div className="alert-description">
-                      Tank level is {Number(alert.level_percent || 0).toFixed(1)}% ({Number(alert.volume_liters || 0).toFixed(1)} L)
-                    </div>
-                    <div className="alert-timestamp">
-                      Active since {formatDateTime(alert.created_at)}
-                    </div>
+                    <div className="alert-badge-active">ACTIVE</div>
                   </div>
-                  <div className="alert-badge-active">ACTIVE</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="no-active-alert-box">
@@ -491,6 +491,15 @@ function App() {
               <div className="alert-history-list">
                 {alerts.map((alert) => {
                   const isActive = String(alert.status).toLowerCase() === "active";
+                  const itemLevel =
+                    typeof alert.level_percent !== "undefined" && alert.level_percent !== null
+                      ? Number(alert.level_percent).toFixed(1)
+                      : "0.0";
+                  const itemVolume =
+                    typeof alert.volume_liters !== "undefined" && alert.volume_liters !== null
+                      ? Number(alert.volume_liters).toFixed(1)
+                      : "0.0";
+
                   return (
                     <div key={alert.id} className="alert-history-row">
                       <div className="alert-row-col-main">
@@ -503,15 +512,11 @@ function App() {
                       </div>
 
                       <div className="alert-row-col">
-                        <span className="alert-row-val">
-                          {Number(alert.level_percent || 0).toFixed(1)}%
-                        </span>
+                        <span className="alert-row-val">{itemLevel}%</span>
                       </div>
 
                       <div className="alert-row-col">
-                        <span className="alert-row-val">
-                          {Number(alert.volume_liters || 0).toFixed(1)} L
-                        </span>
+                        <span className="alert-row-val">{itemVolume} L</span>
                       </div>
 
                       <div className="alert-row-col-status">
