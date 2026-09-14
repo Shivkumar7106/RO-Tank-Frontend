@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -22,21 +22,36 @@ const RANGE_OPTIONS = [
   { label: "7 days", value: "7d" },
 ];
 
+// Helper to correctly parse ISO UTC timestamps from backend database
+function parseTimestamp(dateStr) {
+  if (!dateStr) return new Date();
+  if (typeof dateStr === "string") {
+    let s = dateStr.trim();
+    // If backend returns UTC ISO string without explicit 'Z' or timezone offset, append 'Z'
+    if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s) && !/[+-]\d{4}$/.test(s)) {
+      s = s.replace(" ", "T") + "Z";
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
 function formatTimeOnly(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
+  const d = parseTimestamp(dateStr);
   return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: true,
   });
 }
 
 function formatDateTime(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
+  const d = parseTimestamp(dateStr);
   return d.toLocaleString("en-US", {
     month: "numeric",
     day: "numeric",
@@ -48,6 +63,24 @@ function formatDateTime(dateStr) {
   });
 }
 
+function CustomTooltip({ active, payload }) {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="ecg-tooltip">
+        <div className="ecg-tooltip-time">⏱️ {data.fullTime || data.time}</div>
+        <div className="ecg-tooltip-level">
+          💧 Level: <strong>{Number(data.level).toFixed(1)}%</strong>
+        </div>
+        <div className="ecg-tooltip-volume">
+          📦 Volume: <strong>{Number(data.volume).toFixed(1)} L</strong>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 function App() {
   const [tankLevel, setTankLevel] = useState(92);
   const [volume, setVolume] = useState(1840.6);
@@ -57,6 +90,9 @@ function App() {
   const [alerts, setAlerts] = useState([]);
   const [sensorStatus, setSensorStatus] = useState("online");
   const [loading, setLoading] = useState(true);
+  const [lastUpdatedTime, setLastUpdatedTime] = useState("");
+
+  const historyRef = useRef([]);
 
   const getLatest = async () => {
     try {
@@ -70,10 +106,42 @@ function App() {
         const lvl = Number(data.level_percent || 0);
         const vol = Number(data.volume_liters || 0);
         const dist = Number(data.distance_cm || 0);
+        const recordedTime = data.recorded_at;
 
-        setTankLevel(lvl);
-        setVolume(vol);
-        setDistance(dist);
+        if (lvl > 0 || vol > 0) {
+          setTankLevel(lvl);
+          setVolume(vol);
+          setDistance(dist);
+        }
+        if (recordedTime) {
+          setLastUpdatedTime(formatDateTime(recordedTime));
+        }
+
+        // Live ECG push effect: append latest point to history if new
+        if (recordedTime && (lvl > 0 || vol > 0)) {
+          const formattedTime = formatTimeOnly(recordedTime);
+          const fullTime = formatDateTime(recordedTime);
+          
+          setHistoryData((prevData) => {
+            if (prevData.length === 0) return prevData;
+            const lastPoint = prevData[prevData.length - 1];
+            if (lastPoint && lastPoint.fullTime === fullTime) {
+              return prevData;
+            }
+            // Add new point at right, shift existing left (ECG graph effect)
+            const newPoint = {
+              time: formattedTime,
+              fullTime: fullTime,
+              level: lvl,
+              volume: vol,
+              rawTime: parseTimestamp(recordedTime).getTime(),
+            };
+            const updated = [...prevData, newPoint];
+            // Keep window of max 40 points for smooth ECG scrolling
+            if (updated.length > 40) updated.shift();
+            return updated;
+          });
+        }
       }
     } catch (error) {
       console.error("Latest data error:", error);
@@ -89,29 +157,34 @@ function App() {
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0) {
-        const formatted = data.map((item) => {
+        // Sort items by timestamp ascending (oldest left -> newest right)
+        const sorted = [...data].sort((a, b) => {
+          const tA = parseTimestamp(a.recorded_at || a.time).getTime();
+          const tB = parseTimestamp(b.recorded_at || b.time).getTime();
+          return tA - tB;
+        });
+
+        const formatted = sorted.map((item) => {
           const rawTime = item.recorded_at || item.time;
           return {
             time: formatTimeOnly(rawTime),
+            fullTime: formatDateTime(rawTime),
             level: Number(item.level_percent ?? item.level ?? 0),
             volume: Number(item.volume_liters ?? item.volume ?? 0),
+            rawTime: parseTimestamp(rawTime).getTime(),
           };
         });
 
         setHistoryData(formatted);
+        historyRef.current = formatted;
 
-        // Fallback: If latest tankLevel is 0, pick the last non-zero reading from history
-        const validPoints = data.filter(
-          (d) => Number(d.level_percent ?? d.level ?? 0) > 0
-        );
+        // Update latest tank stats from last non-zero history point if needed
+        const validPoints = formatted.filter((d) => d.level > 0 || d.volume > 0);
         if (validPoints.length > 0) {
           const lastValid = validPoints[validPoints.length - 1];
-          setTankLevel((prev) =>
-            prev === 0 ? Number(lastValid.level_percent ?? lastValid.level ?? 0) : prev
-          );
-          setVolume((prev) =>
-            prev === 0 ? Number(lastValid.volume_liters ?? lastValid.volume ?? 0) : prev
-          );
+          setTankLevel((prev) => (prev === 0 || prev === 92 ? lastValid.level : prev));
+          setVolume((prev) => (prev === 0 || prev === 1840.6 ? lastValid.volume : prev));
+          setLastUpdatedTime(lastValid.fullTime);
         }
       }
     } catch (error) {
@@ -148,8 +221,8 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([
-        getLatest(),
         getHistory(),
+        getLatest(),
         getAlerts(),
         getStatus(),
       ]);
@@ -158,12 +231,13 @@ function App() {
 
     loadData();
 
+    // Auto-update every 3 seconds for continuous ECG graph animation & real-time clock synchronization
     const interval = setInterval(() => {
       getLatest();
       getHistory();
       getAlerts();
       getStatus();
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [selectedRange]);
@@ -187,7 +261,9 @@ function App() {
             <span className="droplet-icon">💧</span>
             <h1 className="header-title">RO Plant Dashboard</h1>
           </div>
-          <p className="header-subtitle">Tank Monitoring System</p>
+          <p className="header-subtitle">
+            Tank Monitoring System {lastUpdatedTime ? `· Last sync: ${lastUpdatedTime}` : ""}
+          </p>
         </div>
 
         <div className="header-right">
@@ -253,15 +329,16 @@ function App() {
           </div>
         </section>
 
-        {/* Section: Water Level History */}
-        <section className="dashboard-panel history-panel">
+        {/* Section: Water Level History (ECG Real-time Graph) */}
+        <section className="dashboard-panel history-panel ecg-card">
           <div className="panel-header-centered">
             <div className="panel-title-with-icon">
               <span className="droplet-icon-small">💧</span>
               <h2>Water Level History</h2>
+              <span className="live-ecg-badge">LIVE ECG</span>
             </div>
             <p className="panel-subtitle">
-              Tank 01 · Live historical monitoring
+              Tank 01 · Real-time sliding wave telemetry
             </p>
 
             <div className="range-selector">
@@ -279,12 +356,12 @@ function App() {
             </div>
           </div>
 
-          <div className="chart-container">
+          <div className="chart-container ecg-chart-wrapper">
             {historyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
+              <ResponsiveContainer width="100%" height={340}>
                 <LineChart
                   data={historyData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  margin={{ top: 10, right: 15, left: -20, bottom: 0 }}
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -305,27 +382,20 @@ function App() {
                     tickFormatter={(val) => `${val}%`}
                     tickLine={false}
                   />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0d1b3a",
-                      borderColor: "#1e3a70",
-                      borderRadius: "8px",
-                      color: "#fff",
-                      fontSize: "13px",
-                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                    }}
-                    formatter={(val) => [`${Number(val).toFixed(1)}%`, "Level"]}
-                  />
+                  <Tooltip content={<CustomTooltip />} />
                   <Line
                     type="monotone"
                     dataKey="level"
                     stroke="#38bdf8"
-                    strokeWidth={2.5}
+                    strokeWidth={2.8}
                     dot={false}
+                    isAnimationActive={true}
+                    animationDuration={600}
+                    animationEasing="linear"
                     activeDot={{
-                      r: 6,
-                      fill: "#38bdf8",
-                      stroke: "#071120",
+                      r: 7,
+                      fill: "#00f0ff",
+                      stroke: "#050a17",
                       strokeWidth: 2,
                     }}
                   />
@@ -333,7 +403,7 @@ function App() {
               </ResponsiveContainer>
             ) : (
               <div className="no-data-placeholder">
-                Waiting for telemetry data...
+                Receiving live telemetry signals...
               </div>
             )}
           </div>
