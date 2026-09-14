@@ -1,4 +1,4 @@
-```jsx
+jsx
 import { useEffect, useState } from "react";
 import {
   LineChart,
@@ -419,4 +419,4 @@ function App() {
 }
 
 export default App;
-```
+
