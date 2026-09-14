@@ -67,9 +67,13 @@ function App() {
       const data = await response.json();
 
       if (data && typeof data.level_percent !== "undefined") {
-        setTankLevel(Number(data.level_percent || 0));
-        setVolume(Number(data.volume_liters || 0));
-        setDistance(Number(data.distance_cm || 0));
+        const lvl = Number(data.level_percent || 0);
+        const vol = Number(data.volume_liters || 0);
+        const dist = Number(data.distance_cm || 0);
+
+        setTankLevel(lvl);
+        setVolume(vol);
+        setDistance(dist);
       }
     } catch (error) {
       console.error("Latest data error:", error);
@@ -84,18 +88,32 @@ function App() {
       if (!response.ok) throw new Error("History API failed");
       const data = await response.json();
 
-      const formatted = Array.isArray(data)
-        ? data.map((item) => {
-            const rawTime = item.recorded_at || item.time;
-            return {
-              time: formatTimeOnly(rawTime),
-              level: Number(item.level_percent ?? item.level ?? 0),
-              volume: Number(item.volume_liters ?? item.volume ?? 0),
-            };
-          })
-        : [];
+      if (Array.isArray(data) && data.length > 0) {
+        const formatted = data.map((item) => {
+          const rawTime = item.recorded_at || item.time;
+          return {
+            time: formatTimeOnly(rawTime),
+            level: Number(item.level_percent ?? item.level ?? 0),
+            volume: Number(item.volume_liters ?? item.volume ?? 0),
+          };
+        });
 
-      setHistoryData(formatted);
+        setHistoryData(formatted);
+
+        // Fallback: If latest tankLevel is 0, pick the last non-zero reading from history
+        const validPoints = data.filter(
+          (d) => Number(d.level_percent ?? d.level ?? 0) > 0
+        );
+        if (validPoints.length > 0) {
+          const lastValid = validPoints[validPoints.length - 1];
+          setTankLevel((prev) =>
+            prev === 0 ? Number(lastValid.level_percent ?? lastValid.level ?? 0) : prev
+          );
+          setVolume((prev) =>
+            prev === 0 ? Number(lastValid.volume_liters ?? lastValid.volume ?? 0) : prev
+          );
+        }
+      }
     } catch (error) {
       console.error("History error:", error);
     }
