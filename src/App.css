@@ -1,0 +1,451 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #07111f;
+  color: #e6f4ff;
+}
+
+.dashboard {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(0, 180, 255, 0.08), transparent 30%),
+    radial-gradient(circle at 90% 20%, rgba(0, 119, 255, 0.06), transparent 30%),
+    #07111f;
+}
+
+/* ================= HEADER ================= */
+
+.header {
+  background: rgba(9, 22, 38, 0.95);
+  padding: 24px 5%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #16324d;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.25);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 28px;
+  color: #eaf8ff;
+}
+
+.header h1::before {
+  content: "💧 ";
+}
+
+.header p {
+  margin: 6px 0 0;
+  color: #7fa4bf;
+}
+
+/* ================= SYSTEM STATUS ================= */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
+}
+
+/* System ONLINE */
+
+.status-online {
+  color: #9ee7c0;
+}
+
+.status-dot-online {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
+}
+
+/* System OFFLINE */
+
+.status-offline {
+  color: #ff7777;
+}
+
+.status-dot-offline {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.8);
+}
+
+/* ================= MAIN ================= */
+
+main {
+  width: 90%;
+  max-width: 1400px;
+  margin: 30px auto;
+}
+
+/* ================= CARDS ================= */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.card,
+.panel {
+  background: #0c1b2b;
+  border: 1px solid #163a58;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.25),
+    0 0 20px rgba(0, 153, 255, 0.03);
+}
+
+.card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: #168dd1;
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  right: -35px;
+  bottom: -45px;
+  background: rgba(0, 174, 255, 0.08);
+  border-radius: 50%;
+}
+
+.card h3 {
+  margin-top: 0;
+  color: #82aeca;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.big-value {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 18px 0 8px;
+  color: #e9f8ff;
+}
+
+.card p {
+  margin: 0;
+  color: #6f94ad;
+}
+
+/* ================= WATER CARD ================= */
+
+/* First card = Tank Level */
+
+.card:first-child .big-value {
+  color: #38c8ff;
+  text-shadow: 0 0 15px rgba(56, 200, 255, 0.25);
+}
+
+/* Second card = Water Volume */
+
+.card:nth-child(2) .big-value {
+  color: #4dd4ff;
+}
+
+/* Sensor status colors */
+
+.sensor-online {
+  color: #22c55e !important;
+}
+
+.sensor-offline {
+  color: #ef4444 !important;
+}
+
+/* Fourth card = Tank */
+
+.card:nth-child(4) .big-value {
+  color: #a5d8ff;
+}
+
+/* ================= PANELS ================= */
+
+.panel {
+  margin-top: 24px;
+}
+
+.panel h2 {
+  margin-top: 0;
+  color: #e5f5ff;
+}
+
+.panel-header p {
+  color: #6f94ad;
+}
+
+/* ================= CHART ================= */
+
+.chart {
+  width: 100%;
+  height: 350px;
+  margin-top: 15px;
+}
+
+/* ================= RANGE BUTTONS ================= */
+
+.range-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.range-buttons button {
+  background: #091827;
+  color: #82aeca;
+  border: 1px solid #163a58;
+  border-radius: 8px;
+  padding: 8px 13px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.range-buttons button:hover {
+  border-color: #168dd1;
+  color: #dff5ff;
+}
+
+.range-buttons button.active {
+  background: #0b5f87;
+  border-color: #38c8ff;
+  color: white;
+}
+
+/* ================= TANK INFORMATION ================= */
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.info-grid div {
+  padding: 16px;
+  background: #091827;
+  border: 1px solid #15344e;
+  border-radius: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.info-grid div:hover {
+  border-color: #168dd1;
+}
+
+.info-grid span {
+  display: block;
+  color: #6f94ad;
+  margin-bottom: 8px;
+}
+
+.info-grid strong {
+  font-size: 18px;
+  color: #dff5ff;
+}
+
+/* ================= ALERTS ================= */
+
+.active-alert {
+  margin-top: 20px;
+}
+
+.alert-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  background: #241719;
+  border: 1px solid #7f3030;
+  border-left: 4px solid #ef4444;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.08);
+}
+
+.alert-icon {
+  font-size: 28px;
+}
+
+.alert-content {
+  flex: 1;
+}
+
+.alert-content strong {
+  color: #ff6b6b;
+  font-size: 15px;
+}
+
+.alert-content p {
+  margin: 6px 0;
+  color: #d9e8f2;
+}
+
+.alert-content p strong {
+  color: #ff8a8a;
+}
+
+.alert-content span {
+  color: #7f98aa;
+  font-size: 12px;
+}
+
+.alert-status {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #7f1d1d;
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ================= NO ACTIVE ALERT ================= */
+
+.no-alert {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 18px 20px;
+  margin-top: 20px;
+  background: #0b2118;
+  border: 1px solid #1f6b4a;
+  border-left: 4px solid #22c55e;
+  border-radius: 10px;
+}
+
+.no-alert > span {
+  font-size: 25px;
+  color: #4ade80;
+}
+
+.no-alert strong {
+  color: #86efac;
+}
+
+.no-alert p {
+  margin: 5px 0 0;
+  color: #719687;
+  font-size: 13px;
+}
+
+/* ================= ALERT HISTORY ================= */
+
+.alert-history {
+  margin-top: 28px;
+}
+
+.alert-history h3 {
+  margin-bottom: 14px;
+  color: #dff5ff;
+  font-size: 16px;
+}
+
+.alert-history-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 15px;
+  padding: 14px 16px;
+  background: #091827;
+  border: 1px solid #15344e;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.alert-history-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.alert-history-row strong {
+  color: #dff5ff;
+  font-size: 13px;
+}
+
+.alert-history-row span {
+  color: #607f95;
+  font-size: 11px;
+}
+
+.status-active {
+  color: #ff7777;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-resolved {
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ================= FOOTER ================= */
+
+footer {
+  text-align: center;
+  padding: 30px;
+  color: #55758d;
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 900px) {
+
+  .cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+}
+
+@media (max-width: 600px) {
+
+  .cards,
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .alert-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .alert-status {
+    margin-left: 46px;
+  }
+
+  .alert-history-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+}
