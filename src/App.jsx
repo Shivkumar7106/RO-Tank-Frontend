@@ -1,4 +1,4 @@
-jsx
+
 import { useEffect, useState } from "react";
 import {
   LineChart,
