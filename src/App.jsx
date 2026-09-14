@@ -14,6 +14,9 @@ const API_BASE_URL = "https://ro-tank.onrender.com";
 const TANK_ID = "tank_01";
 const TANK_CAPACITY = 2000;
 
+// Maximum points shown on the live sliding tremor graph
+const MAX_TREMOR_POINTS = 30;
+
 const RANGE_OPTIONS = [
   { label: "15 min", value: "15m" },
   { label: "1 hour", value: "1h" },
@@ -92,7 +95,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [lastUpdatedTime, setLastUpdatedTime] = useState("");
 
-  const historyRef = useRef([]);
+  const latestDataRef = useRef({ level: 92, volume: 1840.6 });
 
   const getLatest = async () => {
     try {
@@ -112,23 +115,26 @@ function App() {
           setTankLevel(lvl);
           setVolume(vol);
           setDistance(dist);
+          latestDataRef.current = { level: lvl, volume: vol };
         }
         if (recordedTime) {
           setLastUpdatedTime(formatDateTime(recordedTime));
         }
 
-        // Live ECG push effect: append latest point to history if new
+        // Tremor graph live scrolling effect: append new point to right, shift timeline & wave left
         if (recordedTime && (lvl > 0 || vol > 0)) {
           const formattedTime = formatTimeOnly(recordedTime);
           const fullTime = formatDateTime(recordedTime);
-          
+
           setHistoryData((prevData) => {
             if (prevData.length === 0) return prevData;
             const lastPoint = prevData[prevData.length - 1];
+
+            // Don't add duplicate if timestamp matches exactly
             if (lastPoint && lastPoint.fullTime === fullTime) {
               return prevData;
             }
-            // Add new point at right, shift existing left (ECG graph effect)
+
             const newPoint = {
               time: formattedTime,
               fullTime: fullTime,
@@ -136,10 +142,10 @@ function App() {
               volume: vol,
               rawTime: parseTimestamp(recordedTime).getTime(),
             };
+
+            // Shift timeline & values left together by dropping oldest item from start
             const updated = [...prevData, newPoint];
-            // Keep window of max 40 points for smooth ECG scrolling
-            if (updated.length > 40) updated.shift();
-            return updated;
+            return updated.slice(-MAX_TREMOR_POINTS);
           });
         }
       }
@@ -175,8 +181,9 @@ function App() {
           };
         });
 
-        setHistoryData(formatted);
-        historyRef.current = formatted;
+        // Limit initial points so tremor movement is crisp and clear
+        const sliced = formatted.slice(-MAX_TREMOR_POINTS);
+        setHistoryData(sliced);
 
         // Update latest tank stats from last non-zero history point if needed
         const validPoints = formatted.filter((d) => d.level > 0 || d.volume > 0);
@@ -185,6 +192,7 @@ function App() {
           setTankLevel((prev) => (prev === 0 || prev === 92 ? lastValid.level : prev));
           setVolume((prev) => (prev === 0 || prev === 1840.6 ? lastValid.volume : prev));
           setLastUpdatedTime(lastValid.fullTime);
+          latestDataRef.current = { level: lastValid.level, volume: lastValid.volume };
         }
       }
     } catch (error) {
@@ -231,13 +239,13 @@ function App() {
 
     loadData();
 
-    // Auto-update every 3 seconds for continuous ECG graph animation & real-time clock synchronization
+    // Fast 2-second interval for active streaming tremor graph shift
     const interval = setInterval(() => {
       getLatest();
       getHistory();
       getAlerts();
       getStatus();
-    }, 3000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [selectedRange]);
@@ -329,16 +337,16 @@ function App() {
           </div>
         </section>
 
-        {/* Section: Water Level History (ECG Real-time Graph) */}
+        {/* Section: Water Level History (Streaming Tremor Waveform) */}
         <section className="dashboard-panel history-panel ecg-card">
           <div className="panel-header-centered">
             <div className="panel-title-with-icon">
               <span className="droplet-icon-small">💧</span>
               <h2>Water Level History</h2>
-              <span className="live-ecg-badge">LIVE ECG</span>
+              <span className="live-ecg-badge">TREMOR GRAPH</span>
             </div>
             <p className="panel-subtitle">
-              Tank 01 · Real-time sliding wave telemetry
+              Tank 01 · Streaming live waveform & real-time sliding timeline
             </p>
 
             <div className="range-selector">
@@ -373,6 +381,7 @@ function App() {
                     stroke="#475569"
                     tick={{ fill: "#64748b", fontSize: 11 }}
                     tickLine={false}
+                    interval="preserveStartEnd"
                   />
                   <YAxis
                     domain={[0, 100]}
@@ -390,8 +399,8 @@ function App() {
                     strokeWidth={2.8}
                     dot={false}
                     isAnimationActive={true}
-                    animationDuration={600}
-                    animationEasing="linear"
+                    animationDuration={400}
+                    animationEasing="ease-in-out"
                     activeDot={{
                       r: 7,
                       fill: "#00f0ff",
@@ -403,7 +412,7 @@ function App() {
               </ResponsiveContainer>
             ) : (
               <div className="no-data-placeholder">
-                Receiving live telemetry signals...
+                Streaming live tremor waveform...
               </div>
             )}
           </div>
